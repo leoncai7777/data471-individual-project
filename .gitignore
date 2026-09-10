@@ -1,0 +1,16 @@
+# course-provided / copyrighted reference material — not part of the submission
+reference/
+
+# Quarto / knitr build artifacts
+/.quarto/
+*_files/
+*_cache/
+
+# R
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# OS
+.DS_Store

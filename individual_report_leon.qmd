@@ -1,0 +1,560 @@
+---
+title: "Does Urban Status Reverse the Poverty-Income Effect on Low Food
+  Access? A Modelling Investigation of the Food Access Research Atlas"
+author: "Leon Cai, 300692424"
+date: today
+format:
+  pdf:
+    pdf-engine: lualatex
+    number-sections: true
+    toc: true
+fontsize: 11pt
+geometry: margin=2.5cm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+library(broom)
+library(patchwork)
+library(car)
+library(ResourceSelection)
+library(randomForest)
+library(pROC)
+```
+
+```{r data-setup, include=FALSE}
+# Self-contained load and clean; sets up the core variables used throughout
+# this report.
+df <- read.csv(
+  "data/2019/2019_Food_Access_Research_Atlas_Data/Food Access Research Atlas.csv",
+  stringsAsFactors = FALSE,
+  na.strings = c("NA", "NULL", "")
+)
+
+num_vars <- c("Pop2010", "OHU2010", "LA1and10", "HUNVFlag", "Urban",
+              "PovertyRate", "MedianFamilyIncome", "TractBlack", "TractKids",
+              "TractSeniors", "TractHUNV", "lahunv1share")
+for (v in num_vars) df[[v]] <- as.numeric(df[[v]])
+
+core_vars <- c("LA1and10", "PovertyRate", "MedianFamilyIncome", "Urban", "HUNVFlag")
+df <- df[complete.cases(df[, core_vars]), ]
+
+# Standardise the two continuous predictors before putting them in an
+# interaction model -- keeps odds ratios interpretable as "per 1 SD",
+# and puts PovertyRate (0-100) and MedianFamilyIncome (tens of
+# thousands) on a comparable scale.
+df$PovertyRate_z <- as.numeric(scale(df$PovertyRate))
+df$MedianFamilyIncome_z <- as.numeric(scale(df$MedianFamilyIncome))
+df$Urban_f <- factor(df$Urban, levels = c(0, 1), labels = c("Rural", "Urban"))
+
+# "Plain" composition shares: defined for every tract, not just
+# low-access ones, unlike the lah***1share columns -- avoids the
+# structural missingness those have (see M2's data-prep notes below
+# for where that missingness *is* deliberately used instead).
+df$black_share_plain <- df$TractBlack / df$Pop2010
+df$kids_share_plain <- df$TractKids / df$Pop2010
+df$seniors_share_plain <- df$TractSeniors / df$Pop2010
+df$hunv_share_plain <- df$TractHUNV / df$OHU2010
+# 106 tracts have OHU2010 == 0, which makes hunv_share_plain Inf/NaN --
+# these are flagged rather than dropped, since scale() and randomForest
+# can't handle non-finite values. Treat those as missing here instead.
+df$hunv_share_plain[!is.finite(df$hunv_share_plain)] <- NA
+for (v in c("black_share_plain", "kids_share_plain", "seniors_share_plain", "hunv_share_plain")) {
+  df[[paste0(v, "_z")]] <- as.numeric(scale(df[[v]]))
+}
+```
+
+<!--
+Marking-scheme reminders (delete before submission):
+- 10-12 pages TOTAL incl. references, excl. appendices. ~8 pages of TEXT -
+  don't pad with plots to hit 12. Shorter is fine.
+- Font 11 or 12, margins >= 2cm.
+- No raw R/Python output - build proper tables (kable), <=3 d.p.,
+  right-aligned numeric columns.
+- NOT sufficient to resubmit the group report - Background/Data/Ethics/EDA
+  must be revised to be specific to YOUR question, not just copy-pasted.
+- Detailed Analysis must go BEYOND the group EDA - at minimum a hypothesis
+  test, ideally a fitted model with goodness-of-fit / performance check.
+- Executive Summary: max 1 page, non-technical language, but WITH numbers
+  (coefficients, CIs, p-values, accuracy). Write this section last.
+-->
+
+# Executive Summary
+<!-- max 1 page. non-technical language, but must include numbers. -->
+
+[TODO: write this LAST, once the Detailed Analysis results exist. One
+paragraph: what question, what method, what was found, how confident.]
+
+# Background
+<!-- 1-2 pages -->
+
+[TODO: expand on the group report's Background, but focused on YOUR
+question. Suggested angle based on the group EDA: pooled, PovertyRate and
+MedianFamilyIncome barely separate LA1and10 (Cohen's d ~0.2-0.27) - but
+splitting by Urban reverses the direction of both relationships (Simpson's
+paradox, see group_report). State the specific research question this
+motivates, e.g.: "Does modelling LA1and10 with an Urban interaction term
+change which predictors matter, compared to a pooled model?"]
+
+## Research question(s)
+
+[TODO: state the specific question(s) precisely, in a form you can
+actually test.]
+
+# Data Description
+<!-- 1-2 pages -->
+
+[TODO: revise from the group report's Background/Data section - state
+structure + completeness again briefly, then focus on the specific
+variables your Detailed Analysis actually uses (e.g. PovertyRate,
+MedianFamilyIncome, Urban, LA1and10) and what their categories mean.]
+
+# Ethics, Privacy and Security
+<!-- 1-2 pages. Revise the group version in light of any feedback received. -->
+
+[TODO: carry over from group_report.Rmd once feedback is received on the
+Phase 1 report; adjust wording if needed.]
+
+# Exploratory Data Analysis
+<!-- 3-4 pages. Subset of the group EDA - only what's relevant to your question. -->
+
+<!--
+TODO: don't repeat everything from the group report. Pick the plots that
+motivate/support the Detailed Analysis specifically - likely candidates:
+  - box_poverty_by_target.png / box_income_by_target.png (pooled, weak)
+  - box_poverty_by_target_urban.png / box_income_by_target_urban.png
+    (the reversal that motivates the interaction-term model)
+-->
+
+```{r eda-example, fig.cap="[TODO: write final caption] PovertyRate and MedianFamilyIncome by LA1and10 status, split by Urban/Rural -- the pattern reverses direction between the two panels.", out.width="80%", fig.align="center", fig.width=7, fig.height=6}
+df_f <- df %>% mutate(LA1and10_f = factor(LA1and10, labels = c("Not low access", "Low access")))
+
+p_pov <- ggplot(df_f, aes(LA1and10_f, PovertyRate)) +
+  geom_boxplot(fill = "steelblue") +
+  facet_wrap(~ Urban_f) +
+  labs(x = "", y = "Poverty rate (%)")
+
+p_inc <- ggplot(df_f, aes(LA1and10_f, MedianFamilyIncome)) +
+  geom_boxplot(fill = "steelblue") +
+  facet_wrap(~ Urban_f) +
+  labs(x = "", y = "Median family income ($)")
+
+p_pov / p_inc
+```
+
+# Detailed Analysis Results
+<!-- 3-4 pages. Must go beyond the EDA - hypothesis test at minimum, ideally a model. -->
+
+## Method
+
+[TODO: what technique, why it fits the question. Candidate given the
+Simpson's-paradox motivation: logistic regression of LA1and10 on
+PovertyRate + MedianFamilyIncome + Urban + an Urban interaction term,
+compared against the same model without the interaction (likelihood-ratio
+test on the interaction term = the formal hypothesis test).]
+
+## Data preparation for this analysis
+
+[TODO: any transformations - e.g. standardising PovertyRate/Income before
+including them in a model, log-transform if skew is an issue, how missing
+data was handled here specifically.]
+
+## Model specification
+
+[TODO: full list of terms in the model, exactly as fitted - e.g.
+`LA1and10 ~ PovertyRate * Urban + MedianFamilyIncome * Urban`.]
+
+```{r model-fit, include=FALSE}
+format_p <- function(p) ifelse(p < 0.001, "<0.001", formatC(p, digits = 3, format = "f"))
+mcfadden_r2 <- function(m) 1 - (m$deviance / m$null.deviance)
+
+# M0 (baseline): main effects only, no Urban interaction -- the "pooled
+# relationship, does Urban matter as its own predictor" model.
+m0 <- glm(LA1and10 ~ PovertyRate_z + MedianFamilyIncome_z + Urban_f,
+          data = df, family = binomial)
+
+# M1 (interaction): adds the Urban interaction terms -- lets the
+# PovertyRate/Income effect flip sign between Urban and Rural.
+m1 <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f,
+          data = df, family = binomial)
+
+# Formal hypothesis test: does adding the interaction terms improve the
+# fit significantly? (H0: both interaction coefficients are 0, i.e. the
+# Urban/Rural relationship is really the same.)
+lrt <- anova(m0, m1, test = "Chisq")
+```
+
+```{r vif-check}
+# VIF is checked on M0 (main-effects only) -- it isn't well-defined in
+# the usual sense once interaction terms are added, so this checks
+# collinearity among the predictors themselves, not the interaction
+# structure. Rule used (set in advance): drop MedianFamilyIncome if
+# either VIF exceeds 5.
+vif_table <- as.data.frame(vif(m0)) %>%
+  tibble::rownames_to_column("Term") %>%
+  setNames(c("Term", "VIF"))
+vif_table$VIF <- round(vif_table$VIF, 2)
+kable(vif_table, align = c("l", "r"),
+      caption = "Variance inflation factors, M0 (main effects)")
+```
+
+```{r model-results-table}
+m1_table <- tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
+  transmute(
+    Term = term,
+    `Odds Ratio` = round(estimate, 3),
+    `Lower CI` = round(conf.low, 3),
+    `Upper CI` = round(conf.high, 3),
+    `p-value` = format_p(p.value)
+  )
+kable(m1_table, align = c("l", "r", "r", "r", "r"),
+      caption = "M1 (with Urban interaction): odds ratios and 95% CIs")
+```
+
+```{r model-fit-comparison}
+fit_comparison <- data.frame(
+  Model = c("M0: main effects only", "M1: with Urban interaction"),
+  AIC = round(c(AIC(m0), AIC(m1)), 1),
+  `McFadden pseudo-R2` = round(c(mcfadden_r2(m0), mcfadden_r2(m1)), 4),
+  check.names = FALSE
+)
+kable(fit_comparison, align = c("l", "r", "r"),
+      caption = "Model fit comparison")
+```
+
+```{r lrt-table}
+lrt_table <- data.frame(
+  `Resid. Df` = lrt$`Resid. Df`,
+  Deviance = round(lrt$Deviance, 2),
+  `Pr(>Chi)` = format_p(lrt$`Pr(>Chi)`),
+  check.names = FALSE
+)
+kable(lrt_table, caption = "Likelihood-ratio test: M1 vs M0")
+```
+
+## Results (M0 vs M1)
+
+[TODO: write this once you've checked the tables above render sensibly.
+Suggested structure: (1) state the LRT p-value and what it means for the
+"does the relationship differ by Urban/Rural" question, (2) walk through
+M1's odds ratios for PovertyRate_z, MedianFamilyIncome_z, and their Urban
+interaction terms -- note that for a factor interaction, the
+Urban-specific slope is the main-effect coefficient PLUS the interaction
+coefficient, not the interaction coefficient alone, (3) compare AIC/
+pseudo-R2 between the two models to justify keeping the interaction,
+(4) note VIF result and whether MedianFamilyIncome was kept or dropped.]
+
+## M2: does vehicle access explain the reversal?
+
+[TODO: state the mediation-style question -- does adding vehicle access
+attenuate the Urban interaction coefficients, i.e. is limited vehicle
+access part of *why* the relationship flips by Urban rather than Urban
+being a standalone confound?]
+
+```{r m2-vehicle-access, include=FALSE}
+# lahunv1share has structural missingness (only computed for
+# LATracts1==1 tracts) -- refit M1 on the *same* complete-case
+# subsample used for M2, so the M1-vs-M2 comparison isn't confounded
+# by comparing two different populations.
+df_m2 <- df %>% filter(!is.na(lahunv1share))
+n_m2 <- nrow(df_m2)
+n_full <- nrow(df)
+
+m1_sub <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f,
+              data = df_m2, family = binomial)
+m2 <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f + lahunv1share,
+          data = df_m2, family = binomial)
+```
+
+```{r m2-sample-note}
+sample_note <- data.frame(
+  Dataset = c("Full sample (M0/M1)", "lahunv1share complete cases (M1 refit / M2)"),
+  `Rows` = c(n_full, n_m2),
+  `% of full sample` = round(100 * c(n_full, n_m2) / n_full, 1),
+  check.names = FALSE
+)
+kable(sample_note, align = c("l", "r", "r"),
+      caption = "Sample size used for the M2 comparison (structural missingness in lahunv1share)")
+```
+
+```{r m2-coefficient-shrinkage}
+# Coefficient-shrinkage comparison: if the Urban interaction
+# coefficients move substantially toward 0 once lahunv1share is added,
+# that's informal evidence vehicle access explains part of the
+# Urban-dependent reversal. If they barely move, the reversal isn't
+# mainly a vehicle-access story.
+interaction_terms <- c("PovertyRate_z:Urban_fUrban", "Urban_fUrban:MedianFamilyIncome_z")
+
+shrink_table <- bind_rows(
+  tidy(m1_sub) %>% filter(term %in% interaction_terms) %>% mutate(Model = "M1 (refit on M2 subsample)"),
+  tidy(m2) %>% filter(term %in% interaction_terms) %>% mutate(Model = "M2 (+ lahunv1share)")
+) %>%
+  transmute(Model, Term = term, Estimate = round(estimate, 3),
+            `Std. Error` = round(std.error, 3), `p-value` = format_p(p.value))
+kable(shrink_table, align = c("l", "l", "r", "r", "r"),
+      caption = "Urban interaction coefficients before/after adding lahunv1share")
+```
+
+[TODO: read off the table above -- did the interaction coefficients
+shrink toward 0 from M1 (refit) to M2? By roughly how much (%)? State
+the conclusion for the mediation-style question.]
+
+## Goodness of fit (chosen model: M1)
+
+```{r goodness-of-fit, include=FALSE}
+# Hosmer-Lemeshow: are M1's predicted probabilities well-calibrated,
+# not just "better than M0"? LRT/AIC only compare models against each
+# other, not whether the chosen model's predictions match reality.
+hl_test <- hoslem.test(m1$y, fitted(m1), g = 10)
+
+calib_df <- data.frame(predicted = fitted(m1), observed = m1$y) %>%
+  mutate(decile = ntile(predicted, 10)) %>%
+  group_by(decile) %>%
+  summarise(mean_predicted = mean(predicted), mean_observed = mean(observed), n = n(), .groups = "drop")
+```
+
+```{r hl-test-table}
+hl_table <- data.frame(
+  Statistic = "Hosmer-Lemeshow X-squared",
+  value = round(unname(hl_test$statistic), 2),
+  df = unname(hl_test$parameter),
+  `p-value` = format_p(hl_test$p.value),
+  check.names = FALSE
+)
+kable(hl_table, align = c("l", "r", "r", "r"), caption = "Hosmer-Lemeshow goodness-of-fit test for M1")
+```
+
+```{r calibration-plot, fig.cap="Calibration plot for M1: predicted vs. observed low-access rate by decile of predicted probability. Points on the dashed line indicate perfect calibration.", out.width="65%", fig.align="center", fig.width=5, fig.height=4.5}
+ggplot(calib_df, aes(mean_predicted, mean_observed)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  geom_point(size = 2) +
+  geom_line() +
+  labs(x = "Mean predicted probability (decile)", y = "Observed proportion low-access") +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1))
+```
+
+[TODO: state the HL test p-value and what it means (large p = fail to
+reject H0 of good calibration -- but note that at very large n, HL
+becomes extremely sensitive and will flag even tiny, practically
+irrelevant deviations from perfect calibration as "significant", so a
+significant HL result here doesn't necessarily mean the model is
+practically miscalibrated -- read the calibration plot alongside it for
+the practical picture, not instead of it. With n ~ 72,000 here, expect
+HL to reject even for a genuinely well-calibrated model -- that's why
+the calibration plot matters more than the p-value at this sample size).]
+
+## M3: random forest comparison, with GA-based feature selection
+
+[TODO: explain why a second, non-parametric method is worth fitting --
+to check whether the logistic model's interaction-term story survives
+in a method that doesn't assume a particular functional form, and to
+satisfy the brief's "ideally fit a prediction/ML model" ask with an
+actual second method, not a third logistic-regression variant.]
+
+### Feature selection: genetic algorithm
+
+[TODO: explain the GA -- following the approach from AIML426
+(Evolutionary Computation), each chromosome is a binary vector marking
+which optional predictors are included; PovertyRate_z,
+MedianFamilyIncome_z and Urban are always included since they're
+central to the research question, and the GA searches over whether to
+add each of the four demographic composition shares. Fitness = 5-fold
+cross-validated AUC of a random forest fit on the selected features.]
+
+```{r ga-feature-selection, include=FALSE, cache=TRUE}
+set.seed(471)
+
+optional_features <- c("black_share_plain_z", "kids_share_plain_z",
+                        "seniors_share_plain_z", "hunv_share_plain_z")
+mandatory_features <- c("PovertyRate_z", "MedianFamilyIncome_z", "Urban_f")
+
+ga_data <- df %>% select(LA1and10, all_of(mandatory_features), all_of(optional_features)) %>%
+  na.omit()
+ga_data$LA1and10 <- factor(ga_data$LA1and10, levels = c(0, 1), labels = c("No", "Yes"))
+
+# Subsample for the GA's internal fitness evaluation only -- keeps each
+# generation fast; the final chosen model is refit on the full ga_data
+# afterwards.
+ga_sample_idx <- sample(nrow(ga_data), size = min(8000, nrow(ga_data)))
+ga_sample <- ga_data[ga_sample_idx, ]
+
+fitness_auc <- function(chromosome) {
+  chosen <- c(mandatory_features, optional_features[chromosome == 1])
+  if (length(chosen) == 0) return(0)
+  folds <- sample(rep(1:5, length.out = nrow(ga_sample)))
+  fold_auc <- sapply(1:5, function(k) {
+    train <- ga_sample[folds != k, ]
+    test <- ga_sample[folds == k, ]
+    fit <- randomForest(x = train[, chosen, drop = FALSE], y = train$LA1and10, ntree = 100)
+    pred <- predict(fit, test[, chosen, drop = FALSE], type = "prob")[, "Yes"]
+    as.numeric(auc(response = test$LA1and10, predictor = pred, quiet = TRUE))
+  })
+  mean(fold_auc)
+}
+
+# Minimal GA (binary encoding, tournament selection, single-point
+# crossover, bit-flip mutation) -- written directly rather than via a
+# package, since the search space here (2^4 = 16 subsets) is small
+# enough that the mechanics matter more for this report than raw speed;
+# the same code scales to a much larger optional-feature set.
+n_genes <- length(optional_features)
+pop_size <- 8
+n_generations <- 6
+mutation_rate <- 0.15
+
+population <- matrix(sample(0:1, pop_size * n_genes, replace = TRUE), nrow = pop_size)
+ga_history <- data.frame(generation = integer(), best_fitness = numeric(), mean_fitness = numeric())
+
+for (gen in seq_len(n_generations)) {
+  fitness <- apply(population, 1, fitness_auc)
+  ga_history <- rbind(ga_history, data.frame(
+    generation = gen, best_fitness = max(fitness), mean_fitness = mean(fitness)
+  ))
+
+  new_pop <- matrix(nrow = pop_size, ncol = n_genes)
+  for (i in seq(1, pop_size, by = 2)) {
+    # Tournament selection (size 2) for each parent.
+    parents_idx <- sample(pop_size, 4)
+    parent1 <- population[parents_idx[which.max(fitness[parents_idx[1:2]])], ]
+    parent2 <- population[parents_idx[2 + which.max(fitness[parents_idx[3:4]])], ]
+    cut <- sample(1:(n_genes - 1), 1)
+    child1 <- c(parent1[1:cut], parent2[(cut + 1):n_genes])
+    child2 <- c(parent2[1:cut], parent1[(cut + 1):n_genes])
+
+    flip1 <- runif(n_genes) < mutation_rate
+    child1[flip1] <- 1 - child1[flip1]
+    new_pop[i, ] <- child1
+
+    if (i + 1 <= pop_size) {
+      flip2 <- runif(n_genes) < mutation_rate
+      child2[flip2] <- 1 - child2[flip2]
+      new_pop[i + 1, ] <- child2
+    }
+  }
+  population <- new_pop
+}
+
+final_fitness <- apply(population, 1, fitness_auc)
+best_chromosome <- population[which.max(final_fitness), ]
+selected_features <- c(mandatory_features, optional_features[best_chromosome == 1])
+```
+
+```{r ga-convergence-plot, fig.cap="Genetic algorithm convergence: best and mean 5-fold CV AUC by generation.", out.width="65%", fig.align="center", fig.width=5.5, fig.height=3.5}
+ga_history %>%
+  pivot_longer(c(best_fitness, mean_fitness), names_to = "type", values_to = "auc") %>%
+  ggplot(aes(generation, auc, color = type)) +
+  geom_line() + geom_point() +
+  scale_color_manual(values = c(best_fitness = "darkorange", mean_fitness = "steelblue"),
+                      labels = c("Best in generation", "Population mean")) +
+  labs(x = "Generation", y = "5-fold CV AUC (random forest)", color = NULL) +
+  theme(legend.position = "bottom")
+```
+
+```{r ga-selected-features}
+ga_selected_table <- data.frame(
+  Feature = c(mandatory_features, optional_features),
+  Type = c(rep("Mandatory", length(mandatory_features)), rep("Optional (GA-selected)", length(optional_features))),
+  Selected = c(rep("Yes", length(mandatory_features)),
+               ifelse(best_chromosome == 1, "Yes", "No"))
+)
+kable(ga_selected_table, align = c("l", "l", "l"),
+      caption = "Features selected by the genetic algorithm")
+```
+
+[TODO: state which optional features the GA kept, and whether that's
+substantively interesting (e.g. did it keep the same demographic shares
+that mattered in the group EDA's correlation heatmap?).]
+
+### Final random forest vs. M1: held-out test performance
+
+```{r m3-train-test, include=FALSE}
+set.seed(471)
+
+# Stratify the train/test split by LA1and10 (and Urban, since it's
+# central to the research question) so both classes and both area
+# types are represented proportionally in the test set.
+rf_data <- ga_data
+strata <- interaction(rf_data$LA1and10, rf_data$Urban_f)
+train_idx <- unlist(lapply(split(seq_len(nrow(rf_data)), strata), function(idx) {
+  sample(idx, size = floor(0.7 * length(idx)))
+}))
+train_df <- rf_data[train_idx, ]
+test_df <- rf_data[-train_idx, ]
+
+rf_final <- randomForest(x = train_df[, selected_features, drop = FALSE], y = train_df$LA1and10,
+                          ntree = 300, importance = TRUE)
+m1_refit <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f,
+                data = train_df %>% mutate(LA1and10 = as.numeric(LA1and10) - 1), family = binomial)
+
+rf_pred <- predict(rf_final, test_df, type = "prob")[, "Yes"]
+m1_pred <- predict(m1_refit, test_df, type = "response")
+
+rf_roc <- roc(response = test_df$LA1and10, predictor = rf_pred, quiet = TRUE)
+m1_roc <- roc(response = test_df$LA1and10, predictor = m1_pred, quiet = TRUE)
+
+rf_ci <- ci.auc(rf_roc, method = "bootstrap", boot.n = 500)
+m1_ci <- ci.auc(m1_roc, method = "bootstrap", boot.n = 500)
+
+acc <- function(pred, actual, threshold = 0.5) {
+  mean((pred > threshold) == (as.numeric(actual) - 1))
+}
+```
+
+```{r m3-performance-table}
+perf_table <- data.frame(
+  Model = c("M1 (logistic, refit on train split)", "M3 (random forest, GA-selected features)"),
+  `Test AUC` = round(c(as.numeric(m1_roc$auc), as.numeric(rf_roc$auc)), 3),
+  `95% CI` = c(sprintf("(%.3f, %.3f)", m1_ci[1], m1_ci[3]),
+               sprintf("(%.3f, %.3f)", rf_ci[1], rf_ci[3])),
+  `Test Accuracy` = round(c(acc(m1_pred, test_df$LA1and10), acc(rf_pred, test_df$LA1and10)), 3),
+  `Test n` = nrow(test_df),
+  check.names = FALSE
+)
+kable(perf_table, align = c("l", "r", "r", "r", "r"),
+      caption = "Held-out test performance: M1 vs. M3 (bootstrap 95% CI on AUC)")
+```
+
+```{r rf-importance, fig.cap="Random forest variable importance (mean decrease in Gini).", out.width="65%", fig.align="center", fig.width=5.5, fig.height=3.5}
+importance_df <- as.data.frame(importance(rf_final)) %>%
+  tibble::rownames_to_column("Feature") %>%
+  arrange(MeanDecreaseGini)
+importance_df$Feature <- factor(importance_df$Feature, levels = importance_df$Feature)
+
+ggplot(importance_df, aes(Feature, MeanDecreaseGini)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = NULL, y = "Mean decrease in Gini")
+```
+
+## Results (M3)
+
+[TODO: (1) does the random forest's test AUC overlap M1's CI, or is one
+clearly better -- what does that say about whether the logistic
+interaction structure captures the relationship well? (2) does the
+GA-selected feature importance ranking agree with which predictors
+mattered in M1 and the group EDA's correlation heatmap? (3) note that
+random forest importance and logistic-regression coefficients answer
+different questions (predictive contribution vs. a controlled partial
+effect) -- don't conflate them. (4) biases: tract-level aggregation
+(ecological fallacy risk), MedianFamilyIncome top-coded at $250,001,
+M2's non-random missingness (noted above).]
+
+# Conclusions and Recommendations
+<!-- 1-2 pages -->
+
+[TODO: main conclusion(s), any recommendation, limitations, optionally
+future work.]
+
+# References
+
+[TODO: at minimum, cite the data source, e.g.
+
+United States Department of Agriculture, Economic Research Service (2019).
+*Food Access Research Atlas*. https://www.ers.usda.gov/data-products/food-access-research-atlas/
+]
+
+<!-- # Appendices (optional) -->
