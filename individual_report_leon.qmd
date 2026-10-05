@@ -288,12 +288,14 @@ kable(sample_note, align = c("l", "r", "r"),
 # Urban-dependent reversal. If they barely move, the reversal isn't
 # mainly a vehicle-access story.
 interaction_terms <- c("PovertyRate_z:Urban_fUrban", "Urban_fUrban:MedianFamilyIncome_z")
+term_labels <- c("PovertyRate_z:Urban_fUrban" = "Poverty x Urban",
+                  "Urban_fUrban:MedianFamilyIncome_z" = "Income x Urban")
 
 shrink_table <- bind_rows(
   tidy(m1_sub) %>% filter(term %in% interaction_terms) %>% mutate(Model = "M1 (refit on M2 subsample)"),
   tidy(m2) %>% filter(term %in% interaction_terms) %>% mutate(Model = "M2 (+ lahunv1share)")
 ) %>%
-  transmute(Model, Term = term, Estimate = round(estimate, 3),
+  transmute(Model, Term = term_labels[term], Estimate = round(estimate, 3),
             `Std. Error` = round(std.error, 3), `p-value` = format_p(p.value))
 kable(shrink_table, align = c("l", "l", "r", "r", "r"),
       caption = "Urban interaction coefficients before/after adding lahunv1share")
@@ -409,11 +411,22 @@ mutation_rate <- 0.15
 population <- matrix(sample(0:1, pop_size * n_genes, replace = TRUE), nrow = pop_size)
 ga_history <- data.frame(generation = integer(), best_fitness = numeric(), mean_fitness = numeric())
 
+# Track the best chromosome seen across ALL generations, not just the
+# final one -- reproduction below has no elitism, so a strong individual
+# found mid-run isn't guaranteed to survive to the last generation.
+best_ever_fitness <- -Inf
+best_ever_chromosome <- NULL
+
 for (gen in seq_len(n_generations)) {
   fitness <- apply(population, 1, fitness_auc)
   ga_history <- rbind(ga_history, data.frame(
     generation = gen, best_fitness = max(fitness), mean_fitness = mean(fitness)
   ))
+
+  if (max(fitness) > best_ever_fitness) {
+    best_ever_fitness <- max(fitness)
+    best_ever_chromosome <- population[which.max(fitness), ]
+  }
 
   new_pop <- matrix(nrow = pop_size, ncol = n_genes)
   for (i in seq(1, pop_size, by = 2)) {
@@ -438,8 +451,7 @@ for (gen in seq_len(n_generations)) {
   population <- new_pop
 }
 
-final_fitness <- apply(population, 1, fitness_auc)
-best_chromosome <- population[which.max(final_fitness), ]
+best_chromosome <- best_ever_chromosome
 selected_features <- c(mandatory_features, optional_features[best_chromosome == 1])
 ```
 
@@ -506,8 +518,8 @@ acc <- function(pred, actual, threshold = 0.5) {
 
 ```{r m3-performance-table}
 perf_table <- data.frame(
-  Model = c("M1 (logistic, refit on train split)", "M3 (random forest, GA-selected features)"),
-  `Test AUC` = round(c(as.numeric(m1_roc$auc), as.numeric(rf_roc$auc)), 3),
+  Model = c("M1 (logistic)", "M3 (random forest)"),
+  `AUC` = round(c(as.numeric(m1_roc$auc), as.numeric(rf_roc$auc)), 3),
   `95% CI` = c(sprintf("(%.3f, %.3f)", m1_ci[1], m1_ci[3]),
                sprintf("(%.3f, %.3f)", rf_ci[1], rf_ci[3])),
   `Test Accuracy` = round(c(acc(m1_pred, test_df$LA1and10), acc(rf_pred, test_df$LA1and10)), 3),
