@@ -1,15 +1,42 @@
 ---
-title: "Does Urban Status Reverse the Poverty-Income Effect on Low Food
-  Access? A Modelling Investigation of the Food Access Research Atlas"
-author: "Leon Cai, 300692424"
-date: today
+title-meta: "Does Urban Status Reverse the Poverty-Income Effect on Low Food Access?"
+author-meta: "Leon Cai"
 format:
   pdf:
+    documentclass: article
+    classoption: [11pt, a4paper]
     pdf-engine: lualatex
+    geometry: margin=2.5cm
     number-sections: true
-    toc: true
-fontsize: 11pt
-geometry: margin=2.5cm
+    toc: false
+    colorlinks: true
+    linkcolor: blue
+    citecolor: blue
+    urlcolor: blue
+    fig-pos: "H"
+    include-in-header:
+      text: |
+        \usepackage{parskip}
+        \usepackage{microtype}
+        \usepackage{titlesec}
+        \titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{1em}{}
+        \titleformat{\subsection}[block]{\normalfont\large\bfseries}{\thesubsection}{1em}{}
+        \setlength{\emergencystretch}{3em}
+        \usepackage{enumitem}
+        \setlist[enumerate]{leftmargin=1.8em, itemsep=0.25em}
+        \setlist[itemize]{leftmargin=1.4em, itemsep=0.25em}
+        \usepackage{caption}
+        \captionsetup{font=footnotesize}
+    include-before-body:
+      text: |
+        \title{\textbf{Does Urban Status Reverse the Poverty-Income
+        Effect on Low Food Access?}\\[0.3em]
+        \large DATA471 Individual Project}
+        \author{Leon Cai (300692424) \\[0.3em]
+        \footnotesize\color{gray}Group 21 (Phase 1): Loren Whithair, Nancy Grace Busto, Hamid Mehmood}
+        \date{Victoria University of Wellington \\ October 2026}
+        \maketitle
+        \vspace{-1em}
 ---
 
 ```{r setup, include=FALSE}
@@ -24,6 +51,30 @@ library(car)
 library(ResourceSelection)
 library(randomForest)
 library(pROC)
+library(scales)
+
+# Just picking one blue/orange pair and reusing it in every plot instead of
+# letting ggplot pick a different colour scheme each time.
+col_blue   <- "#2a78d6"
+col_orange <- "#eb6834"
+col_pair   <- c(col_blue, col_orange)
+
+theme_report <- function(base_size = 11) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(color = "#e1e0d9", linewidth = 0.3),
+      axis.line = element_line(color = "#c3c2b7", linewidth = 0.3),
+      axis.ticks = element_line(color = "#c3c2b7", linewidth = 0.3),
+      axis.text = element_text(color = "#52514e"),
+      axis.title = element_text(color = "#0b0b0b"),
+      strip.text = element_text(face = "bold", color = "#0b0b0b"),
+      strip.background = element_blank(),
+      plot.title = element_text(color = "#0b0b0b"),
+      legend.position = "bottom",
+      legend.title = element_blank()
+    )
+}
 ```
 
 ```{r data-setup, include=FALSE}
@@ -59,9 +110,11 @@ df$black_share_plain <- df$TractBlack / df$Pop2010
 df$kids_share_plain <- df$TractKids / df$Pop2010
 df$seniors_share_plain <- df$TractSeniors / df$Pop2010
 df$hunv_share_plain <- df$TractHUNV / df$OHU2010
-# 106 tracts have OHU2010 == 0, which makes hunv_share_plain Inf/NaN --
-# these are flagged rather than dropped, since scale() and randomForest
+# A handful of tracts have OHU2010 == 0, which would make hunv_share_plain
+# Inf/NaN -- flagged rather than dropped, since scale() and randomForest
 # can't handle non-finite values. Treat those as missing here instead.
+# (106 raw rows have OHU2010 == 0 before the core_vars completeness
+# filter above; none remain in the filtered df -- see Data Description.)
 df$hunv_share_plain[!is.finite(df$hunv_share_plain)] <- NA
 for (v in c("black_share_plain", "kids_share_plain", "seniors_share_plain", "hunv_share_plain")) {
   df[[paste0(v, "_z")]] <- as.numeric(scale(df[[v]]))
@@ -86,64 +139,238 @@ Marking-scheme reminders (delete before submission):
 # Executive Summary
 <!-- max 1 page. non-technical language, but must include numbers. -->
 
-[TODO: write this LAST, once the Detailed Analysis results exist. One
-paragraph: what question, what method, what was found, how confident.]
+This report asks whether the relationship between poverty, income and low food access
+in US census tracts depends on whether a tract is Urban or Rural. Pooling all tracts
+together, poverty rate and income barely separate tracts with low food access from the
+rest of the sample (a weak effect). Splitting by Urban/Rural status, however, shows
+both relationships pointing in opposite directions in the two area types: in Rural
+tracts, low-access areas tend to be poorer and lower-income than other Rural tracts,
+matching common intuition, while in Urban tracts, low-access areas tend to be
+wealthier and have less poverty than other Urban tracts.
+
+A statistical model that lets poverty and income have different effects in Urban vs.
+Rural tracts fits significantly better than a model that assumes one fixed effect
+everywhere (p < 0.001). Once poverty and income are modelled together, though, neither
+one's own effect literally flips sign by area type. Instead, income is the stronger
+signal of low access in Rural tracts, and poverty is the stronger signal in Urban
+tracts. Adding a measure of vehicle access to the model did not explain this pattern
+(its effect did not shrink the way a true explanation would), and the finding for
+poverty was less stable across subsets of the data than the finding for income.
+
+A random forest model, which can detect patterns without the modeller specifying them
+in advance, predicted low-access status noticeably better than the statistical model
+(71% vs. 66% accuracy), and found that vehicle access and tract demographic makeup
+were stronger predictors overall than poverty or income on their own. The main
+practical implication: a single poverty or income cut-off is not a reliable way to
+flag at-risk areas everywhere. Which measure matters depends on
+whether the area is Urban or Rural, and vehicle access deserves more attention as a
+screening factor in its own right.
 
 # Background
 <!-- 1-2 pages -->
 
-[TODO: expand on the group report's Background, but focused on YOUR
-question. Suggested angle based on the group EDA: pooled, PovertyRate and
-MedianFamilyIncome barely separate LA1and10 (Cohen's d ~0.2-0.27) - but
-splitting by Urban reverses the direction of both relationships (Simpson's
-paradox, see group_report). State the specific research question this
-motivates, e.g.: "Does modelling LA1and10 with an Urban interaction term
-change which predictors matter, compared to a pooled model?"]
+Low-income households are often the ones hit hardest by a long trip to the nearest
+grocery store, since the extra time and transport cost falls on people who can least
+afford it. That link motivates asking whether poverty and income actually predict low
+food access.
 
-## Research question(s)
+The Phase 1 group report (Whithair, Busto, Mehmood and Cai, 2026) looked at access to
+large retail food outlets using the Food Access Research Atlas, and found that two
+variables often assumed to drive low food access, PovertyRate and MedianFamilyIncome,
+barely separated low-access tracts from the rest of the sample once the whole dataset
+was pooled together (a weak effect by conventional standards), and taken on its own
+this would suggest poverty and income are not strong predictors of low food access at
+all.
 
-[TODO: state the specific question(s) precisely, in a form you can
-actually test.]
+Splitting the same comparison by Urban/Rural status changes the picture considerably.
+Within Rural tracts, low-access areas tend to be poorer and lower-income than other
+Rural tracts, which matches common intuition. Within Urban tracts the pattern reverses:
+low-access areas tend to have lower poverty and higher income than other Urban tracts.
+The group report documented the income-side version of this reversal; checking the
+same comparison for poverty rate shows the same pattern holds there too.
+
+A model that lets poverty rate and income have different effects in Urban and Rural
+tracts, rather than one fixed slope for the whole country, is the most direct test of
+whether this reversal is real rather than noise. That gives two linked, testable
+questions for the individual analysis:
+
+**Research question(s).** Does a logistic regression model of low food access status (LA1and10) that includes an
+Urban interaction term for both PovertyRate and MedianFamilyIncome fit significantly
+better than the same model without the interaction terms? If so, do the Urban-specific
+slopes for poverty rate and income actually differ between Urban and Rural tracts in a
+way consistent with the reversal seen in the exploratory analysis?
 
 # Data Description
 <!-- 1-2 pages -->
 
-[TODO: revise from the group report's Background/Data section - state
-structure + completeness again briefly, then focus on the specific
-variables your Detailed Analysis actually uses (e.g. PovertyRate,
-MedianFamilyIncome, Urban, LA1and10) and what their categories mean.]
+The Food Access Research Atlas (FARA) data is a single cross-sectional snapshot from
+2019, not a time series: it records one row per US census tract (72,531 tracts across
+all 50 states), combining binary low-access flags, tract-level population counts, and
+continuous rates/shares describing each tract's demographic makeup and distance to the
+nearest large food retailer. Full variable definitions are in the FARA documentation
+(USDA ERS, 2019; see References).
+
+This analysis uses a subset of that structure, summarised in \hyperref[tab:varsummary]{Table 1}. **LA1and10**
+classifies a tract as low-access at both the 1-mile (Urban) and 10-mile (Rural)
+distance thresholds, following the "food desert" measurement approach of Ver Ploeg
+et al. (2009). **PovertyRate** is the percentage of the tract
+below the poverty line and **MedianFamilyIncome** is the tract's median family income in
+US dollars (top-coded at \$250,001); both are standardised before modelling, and **Urban**
+(coded 0 for Rural, 1 for Urban tracts) is the interaction variable of interest
+throughout. **lahunv1share** is the share of
+housing units in a tract with low vehicle access that are also far from a supermarket,
+and the four composition shares added in **M3** (Black, children, seniors, and
+low-vehicle-access households) are each expressed as a proportion of the tract's own
+population or housing units.
+
+```{r data-description-table}
+var_summary <- data.frame(
+  Variable = c("LA1and10", "PovertyRate", "\\mbox{MedianFamilyIncome}", "Urban",
+               "lahunv1share", "Composition shares"),
+  Type = c("Binary flag", "Continuous (\\%)", "Continuous \\mbox{(\\$, top-coded)}", "Binary flag",
+           "Continuous (share)", "Continuous (share)"),
+  `Used in` = c("M0-M3 (response)", "M0-M3", "M0-M3", "M0-M3 (interaction)",
+                "M2 only", "M3 only"),
+  Missing = c("None", "\\textless1\\%", "\\textless1\\%", "None",
+              "27.5\\% (structural)", "1 tract (negligible)"),
+  check.names = FALSE
+)
+kable(var_summary, align = c("l", "l", "l", "l"), escape = FALSE,
+      caption = "Variables used in this report: type, role, and completeness\\label{tab:varsummary}")
+```
+
+The core variables (**LA1and10**, **PovertyRate**, **MedianFamilyIncome**, **Urban** and
+**HUNVFlag**) are close to completely populated: 71,783 of 72,531 tracts (98.97%) have no
+missing values on any of them, consistent with the group report's own findings. HUNVFlag
+is a raw low-vehicle-access flag used here only to define this complete-case sample, not
+as a predictor.
+**lahunv1share**'s missingness, by contrast, is structural rather than a data-quality gap: it is
+missing for 36% of Urban tracts but under 0.1% of Rural tracts, a pattern tied to area type
+rather than an individual data-quality issue, and it is treated that way in the **M2** analysis
+below.
+
+One change from the group report's handling of missing data: that report zero-filled
+missing demographic tract totals (e.g. **TractBlack**) before computing shares, flagged in
+feedback as misleading since a genuinely missing count isn't the same as a genuinely
+zero one and treating them alike biases the share downward. The **M3** composition shares
+below are instead computed as raw ratios (e.g. **TractBlack** / **Pop2010**), left missing
+wherever an input is missing, and excluded case-wise by any model that uses them.
 
 # Ethics, Privacy and Security
 <!-- 1-2 pages. Revise the group version in light of any feedback received. -->
 
-[TODO: carry over from group_report.Rmd once feedback is received on the
-Phase 1 report; adjust wording if needed.]
+This section carries over the Phase 1 group report's Ethics, Privacy and Security
+discussion, revised in response to feedback received on that report: the Security
+paragraph below now states which measures were actually used, not just which were
+possible.
+
+**Ethics.** As in the Phase 1 group report, the clearest ethical risk in this dataset
+is that correlations involving demographic composition (e.g. the share of a tract's
+population that is Black) could be read as implying those demographics *cause* low
+food access, when both are plausibly shaped by the same underlying structural factors
+(historical redlining, local zoning, retail investment patterns). This risk is sharper
+here than in the group's EDA, because **M3** below fits a random forest that ranks
+demographic composition shares by predictive importance, and a ranked importance table
+is easy to misread as a causal ranking. Results in this report are presented as
+associations useful for predicting which tracts are low-access, not as evidence about
+what *causes* low access, and that distinction is kept explicit wherever the random
+forest's feature importance is discussed.
+
+**Privacy.** Every variable used is a tract-level count, rate, or flag; there are no
+individual- or household-level identifiers anywhere in the dataset, so there is no
+realistic risk of re-identifying a specific person. A small number of tracts have very
+low population counts and could in principle be distinguishable; none of the analyses
+here report results for individual small tracts, only aggregate model coefficients and
+bulk tract-level predictions, so this risk does not apply in practice.
+
+**Security.** FARA data is public and needs no additional security measures beyond
+normal good practice. These are the actual measures used for this project, not
+hypothetical ones: the code and this report are kept in a private GitHub repository
+during development, and the only device holding a local copy is password-protected.
+With more time, access to that repository could additionally be restricted with
+two-factor authentication on the GitHub account, though this was not set up for the
+project.
 
 # Exploratory Data Analysis
 <!-- 3-4 pages. Subset of the group EDA - only what's relevant to your question. -->
 
-<!--
-TODO: don't repeat everything from the group report. Pick the plots that
-motivate/support the Detailed Analysis specifically - likely candidates:
-  - box_poverty_by_target.png / box_income_by_target.png (pooled, weak)
-  - box_poverty_by_target_urban.png / box_income_by_target_urban.png
-    (the reversal that motivates the interaction-term model)
--->
+This section shows only the comparisons that motivate the Detailed Analysis, rather
+than repeating the group report's full EDA. \hyperref[fig:pooledsplit]{Figure 1} shows PovertyRate (top) and
+MedianFamilyIncome (bottom) by LA1and10 status, compared three ways: pooled across all
+tracts, then split into Rural and Urban. Pooled, the two groups overlap heavily on
+both variables, matching Background's description of a weak pooled effect. Splitting
+by Urban/Rural status, however, uncovers the reversal described in Background: within
+Rural tracts the pattern matches common intuition, while within Urban tracts it
+reverses. This is the entire basis for the research question above: a relationship
+that flips sign between two subgroups cannot be captured by a model that only allows
+one fixed slope for the whole country, which is exactly what the Urban interaction
+terms in **M1** are for.
 
-```{r eda-example, fig.cap="[TODO: write final caption] PovertyRate and MedianFamilyIncome by LA1and10 status, split by Urban/Rural -- the pattern reverses direction between the two panels.", out.width="80%", fig.align="center", fig.width=7, fig.height=6}
+```{r eda-example, fig.cap="PovertyRate (top) and MedianFamilyIncome (bottom) by LA1and10 status: pooled, then split by Urban/Rural.\\label{fig:pooledsplit}", out.width="90%", fig.align="center", fig.width=8, fig.height=5.5}
 df_f <- df %>% mutate(LA1and10_f = factor(LA1and10, labels = c("Not low access", "Low access")))
+df_3way <- bind_rows(
+  df_f %>% mutate(AreaGroup = "Pooled"),
+  df_f %>% mutate(AreaGroup = as.character(Urban_f))
+) %>% mutate(AreaGroup = factor(AreaGroup, levels = c("Pooled", "Rural", "Urban")))
 
-p_pov <- ggplot(df_f, aes(LA1and10_f, PovertyRate)) +
-  geom_boxplot(fill = "steelblue") +
+p_pov <- ggplot(df_3way, aes(LA1and10_f, PovertyRate, fill = LA1and10_f)) +
+  geom_boxplot(width = 0.6, linewidth = 0.4, outlier.size = 0.8, outlier.alpha = 0.3) +
+  facet_wrap(~ AreaGroup) +
+  scale_fill_manual(values = col_pair) +
+  labs(x = NULL, y = "Poverty rate (%)", fill = NULL) +
+  theme_report()
+
+p_inc <- ggplot(df_3way, aes(LA1and10_f, MedianFamilyIncome, fill = LA1and10_f)) +
+  geom_boxplot(width = 0.6, linewidth = 0.4, outlier.size = 0.8, outlier.alpha = 0.3) +
+  facet_wrap(~ AreaGroup) +
+  scale_fill_manual(values = col_pair) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(x = NULL, y = "Median family income ($)", fill = NULL) +
+  theme_report()
+
+(p_pov / p_inc) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+A second relationship worth checking before modelling is between the two predictors
+themselves. \hyperref[fig:correlation]{Figure 2} shows PovertyRate and MedianFamilyIncome are moderately
+correlated across all 71,783 tracts (r = -0.66): poorer tracts tend to have lower
+median income, as expected. This matters later in Detailed Analysis Results, where it
+is the reason the two predictors cannot be treated as fully independent effects, and
+the reason PovertyRate and MedianFamilyIncome occasionally
+point in different directions when the parametric **M1** model is compared against the
+non-parametric random forest.
+
+```{r eda-correlation, fig.cap="PovertyRate vs. MedianFamilyIncome across all 71,783 tracts (binned density; r = -0.66).\\label{fig:correlation}", out.width="57%", fig.align="center", fig.width=5.5, fig.height=4}
+ggplot(df, aes(PovertyRate, MedianFamilyIncome)) +
+  geom_bin2d(bins = 50) +
+  geom_smooth(method = "lm", se = FALSE, color = col_orange, linewidth = 0.6, linetype = "dashed") +
+  scale_fill_gradient(low = "#cde2fb", high = "#104281", name = "Tracts") +
+  scale_y_continuous(labels = label_comma()) +
+  coord_cartesian(ylim = c(0, 260000)) +
+  labs(x = "Poverty rate (%)", y = "Median family income ($)") +
+  theme_report()
+```
+
+A third variable, explored in detail later in **M2**, is lahunv1share: the share of a
+tract's housing units with low vehicle access that are also far from a supermarket.
+\hyperref[fig:vehicleeda]{Figure 3} shows it by LA1and10 status, split by Urban/Rural, for the tracts where it is
+defined (its missingness is structural; see Data Description). In both area types,
+low-access tracts have a higher vehicle-access share than other tracts, consistent
+with common intuition, but the gap is far larger in Urban tracts (0.07% to 1.51%) than
+in Rural tracts (2.57% to 3.27%). That makes vehicle access a plausible candidate to
+explain the Urban-dependent poverty/income reversal, a possibility tested formally in
+**M2**. **M3** below uses a second, separately-computed vehicle-access measure (hunv_share_plain)
+with different missingness, not this one; see its caveats for why the two are not a
+straightforward replication of each other.
+
+```{r eda-vehicle-access, fig.cap="lahunv1share (vehicle access share, %) by LA1and10 status, split by Urban/Rural. Y-axis zoomed to the 0-20% range (99th percentile = 19%); whiskers and outliers are computed on the full data.\\label{fig:vehicleeda}", out.width="76%", fig.align="center", fig.width=7, fig.height=3.3}
+ggplot(df_f %>% filter(!is.na(lahunv1share)), aes(LA1and10_f, lahunv1share, fill = LA1and10_f)) +
+  geom_boxplot(width = 0.6, linewidth = 0.4, outlier.size = 0.8, outlier.alpha = 0.3) +
   facet_wrap(~ Urban_f) +
-  labs(x = "", y = "Poverty rate (%)")
-
-p_inc <- ggplot(df_f, aes(LA1and10_f, MedianFamilyIncome)) +
-  geom_boxplot(fill = "steelblue") +
-  facet_wrap(~ Urban_f) +
-  labs(x = "", y = "Median family income ($)")
-
-p_pov / p_inc
+  scale_fill_manual(values = col_pair) +
+  coord_cartesian(ylim = c(0, 20)) +
+  labs(x = NULL, y = "Vehicle access share (%)", fill = NULL) +
+  theme_report()
 ```
 
 # Detailed Analysis Results
@@ -151,26 +378,58 @@ p_pov / p_inc
 
 ## Method
 
-[TODO: what technique, why it fits the question. Candidate given the
-Simpson's-paradox motivation: logistic regression of LA1and10 on
-PovertyRate + MedianFamilyIncome + Urban + an Urban interaction term,
-compared against the same model without the interaction (likelihood-ratio
-test on the interaction term = the formal hypothesis test).]
+Logistic regression suits this question well: LA1and10 is binary, the
+two predictors of interest are continuous, and an interaction term is the right tool
+for directly testing whether a slope changes between two groups (Urban/Rural) rather
+than eyeballing two separate box plots. Two models are compared: **M0**, with
+PovertyRate_z, MedianFamilyIncome_z and Urban_f as main effects only, and **M1**, which
+adds an Urban interaction term for both continuous predictors. A formal test comparing
+the two models is the test for whether the Urban-dependent reversal seen in the EDA is
+real, rather than assuming a single shared slope that happens to look weak overall.
 
 ## Data preparation for this analysis
 
-[TODO: any transformations - e.g. standardising PovertyRate/Income before
-including them in a model, log-transform if skew is an issue, how missing
-data was handled here specifically.]
+PovertyRate and MedianFamilyIncome are standardised (z-scored) before being used as
+predictors, so odds ratios are interpretable as "per one standard deviation" and the
+two variables, which are on very different raw scales (0-100 versus tens of thousands
+of dollars), are directly comparable within the model. Urban is coded as a two-level
+factor (Rural/Urban). The modelling dataset is the same complete-case sample described
+in Data Description (71,783 tracts); no imputation is used for **M0**/**M1**. Missingness on
+these core variables is small (1.03%) but is concentrated in very small-population
+tracts (median Pop2010 1,397 among missing rows vs. 4,027 among complete rows),
+consistent with Census suppression of unreliable estimates for small samples; dropping
+these tracts has a negligible effect on the modelling sample. **M2** and **M3** use additional variables
+with their own missingness patterns, handled separately in those sections.
 
 ## Model specification
 
-[TODO: full list of terms in the model, exactly as fitted - e.g.
-`LA1and10 ~ PovertyRate * Urban + MedianFamilyIncome * Urban`.]
+**M0**: `LA1and10 ~ PovertyRate_z + MedianFamilyIncome_z + Urban_f`
+
+**M1**: `LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f`
+
+Both are fitted by maximum likelihood (binomial family, logit link) on the full
+n = 71,783 complete-case sample.
 
 ```{r model-fit, include=FALSE}
 format_p <- function(p) ifelse(p < 0.001, "<0.001", formatC(p, digits = 3, format = "f"))
 mcfadden_r2 <- function(m) 1 - (m$deviance / m$null.deviance)
+
+# Shared term labels for every results table in this report, so no table
+# shows a raw R variable/interaction name (e.g. "Urban_fUrban:MedianFamilyIncome_z").
+term_labels <- c(
+  "(Intercept)" = "(Intercept)",
+  "PovertyRate_z" = "Poverty rate (z)",
+  "MedianFamilyIncome_z" = "Median family income (z)",
+  "Urban_f" = "Urban",
+  "Urban_fUrban" = "Urban",
+  "PovertyRate_z:Urban_fUrban" = "Poverty x Urban",
+  "Urban_fUrban:MedianFamilyIncome_z" = "Income x Urban",
+  "lahunv1share" = "Vehicle access (lahunv1share)",
+  "black_share_plain_z" = "% Black (z)",
+  "kids_share_plain_z" = "% Children (z)",
+  "seniors_share_plain_z" = "% Seniors (z)",
+  "hunv_share_plain_z" = "% Low-vehicle-access (z)"
+)
 
 # M0 (baseline): main effects only, no Urban interaction -- the "pooled
 # relationship, does Urban matter as its own predictor" model.
@@ -188,72 +447,141 @@ m1 <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f,
 lrt <- anova(m0, m1, test = "Chisq")
 ```
 
-```{r vif-check}
+```{r vif-check, include=FALSE}
 # VIF is checked on M0 (main-effects only) -- it isn't well-defined in
 # the usual sense once interaction terms are added, so this checks
 # collinearity among the predictors themselves, not the interaction
 # structure. Rule used (set in advance): drop MedianFamilyIncome if
-# either VIF exceeds 5.
-vif_table <- as.data.frame(vif(m0)) %>%
-  tibble::rownames_to_column("Term") %>%
-  setNames(c("Term", "VIF"))
-vif_table$VIF <- round(vif_table$VIF, 2)
-kable(vif_table, align = c("l", "r"),
-      caption = "Variance inflation factors, M0 (main effects)")
+# either VIF exceeds 5. Reported inline in prose rather than as its
+# own table, since it's a supporting check, not a primary result.
+vif_vals <- round(vif(m0), 2)
 ```
 
-```{r model-results-table}
+```{r model-results-table, include=FALSE}
 m1_table <- tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
   transmute(
-    Term = term,
+    Term = term_labels[term],
     `Odds Ratio` = round(estimate, 3),
     `Lower CI` = round(conf.low, 3),
     `Upper CI` = round(conf.high, 3),
     `p-value` = format_p(p.value)
   )
-kable(m1_table, align = c("l", "r", "r", "r", "r"),
-      caption = "M1 (with Urban interaction): odds ratios and 95% CIs")
 ```
 
-```{r model-fit-comparison}
+```{r model-fit-comparison, include=FALSE}
 fit_comparison <- data.frame(
   Model = c("M0: main effects only", "M1: with Urban interaction"),
   AIC = round(c(AIC(m0), AIC(m1)), 1),
-  `McFadden pseudo-R2` = round(c(mcfadden_r2(m0), mcfadden_r2(m1)), 4),
+  `McFadden pseudo-R2` = round(c(mcfadden_r2(m0), mcfadden_r2(m1)), 3),
   check.names = FALSE
 )
-kable(fit_comparison, align = c("l", "r", "r"),
-      caption = "Model fit comparison")
-```
-
-```{r lrt-table}
-lrt_table <- data.frame(
-  `Resid. Df` = lrt$`Resid. Df`,
-  Deviance = round(lrt$Deviance, 2),
-  `Pr(>Chi)` = format_p(lrt$`Pr(>Chi)`),
-  check.names = FALSE
-)
-kable(lrt_table, caption = "Likelihood-ratio test: M1 vs M0")
 ```
 
 ## Results (M0 vs M1)
 
-[TODO: write this once you've checked the tables above render sensibly.
-Suggested structure: (1) state the LRT p-value and what it means for the
-"does the relationship differ by Urban/Rural" question, (2) walk through
-M1's odds ratios for PovertyRate_z, MedianFamilyIncome_z, and their Urban
-interaction terms -- note that for a factor interaction, the
-Urban-specific slope is the main-effect coefficient PLUS the interaction
-coefficient, not the interaction coefficient alone, (3) compare AIC/
-pseudo-R2 between the two models to justify keeping the interaction,
-(4) note VIF result and whether MedianFamilyIncome was kept or dropped.]
+The formal test comparing **M0** to **M1** is strongly significant (p < 0.001), so the data
+reject the null hypothesis that PovertyRate and MedianFamilyIncome have the same
+relationship with low food access in Urban and Rural tracts. **M1** also fits the data
+better overall (\hyperref[tab:m0vm1]{Table 2}), though the improvement is modest in absolute terms, as
+expected for tract-level demographic predictors of a binary outcome.
+
+```{r model-fit-comparison-render}
+kable(fit_comparison, align = c("l", "r", "r"),
+      caption = "Model comparison: M0 vs M1\\label{tab:m0vm1}")
+```
+
+Poverty rate and income are not so closely linked that this becomes a problem
+(VIF = `r vif_vals[["PovertyRate_z"]]` for both, consistent with \hyperref[fig:correlation]{Figure 2}'s r = -0.66), so both
+were kept in the model. \hyperref[tab:m1or]{Table 3} and \hyperref[fig:m1coef]{Figure 4} break the Urban-specific slopes down by
+predictor and area (that slope for each predictor is the main-effect coefficient
+*times* the interaction odds ratio, not the interaction coefficient alone):
+
+```{r m1-coef-plot-data, include=FALSE}
+# The Urban-specific slope isn't a term glm() reports directly for a
+# factor interaction -- it's main effect + interaction. Refitting with
+# Urban_f releveled gives that slope (and its CI) directly, rather than
+# requiring the reader to add two rows of Table 3 together by hand.
+m1_urban_ref <- glm(LA1and10 ~ PovertyRate_z * Urban_f_rev + MedianFamilyIncome_z * Urban_f_rev,
+                     data = df %>% mutate(Urban_f_rev = factor(Urban, levels = c(1, 0), labels = c("Urban", "Rural"))),
+                     family = binomial)
+
+coef_plot_df <- bind_rows(
+  tidy(m1, conf.int = TRUE, exponentiate = TRUE) %>%
+    filter(term %in% c("PovertyRate_z", "MedianFamilyIncome_z")) %>% mutate(Area = "Rural"),
+  tidy(m1_urban_ref, conf.int = TRUE, exponentiate = TRUE) %>%
+    filter(term %in% c("PovertyRate_z", "MedianFamilyIncome_z")) %>% mutate(Area = "Urban")
+) %>%
+  mutate(Predictor = ifelse(term == "PovertyRate_z", "Poverty rate", "Median family income"))
+```
+
+```{r m1-coef-plot, fig.cap="M1 odds ratios (per 1-SD) by Urban status, with 95% CIs.\\label{fig:m1coef}", out.width="65%", fig.align="center", fig.width=5.5, fig.height=3}
+ggplot(coef_plot_df, aes(x = estimate, y = Predictor, xmin = conf.low, xmax = conf.high, color = Area)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "#898781") +
+  geom_pointrange(position = position_dodge(width = 0.4), linewidth = 0.6, size = 0.6) +
+  scale_color_manual(values = c(Rural = col_blue, Urban = col_orange)) +
+  scale_x_log10() +
+  labs(x = "Odds ratio (log scale)", y = NULL, color = NULL) +
+  theme_report()
+```
+
+```{r model-results-table-render}
+kable(m1_table, align = c("l", "r", "r", "r", "r"),
+      caption = "M1 (with Urban interaction): odds ratios and 95% CIs\\label{tab:m1or}")
+```
+
+Income dominates in Rural tracts and poverty dominates in Urban tracts, with each predictor's weaker
+effect nearly nulled out in the other area type -- a more specific finding than the
+raw EDA boxplots suggest. Considered one predictor at a time (\hyperref[fig:pooledsplit]{Figure 1}), both poverty
+and income appear to flip sign between Urban and Rural, the same reversal already
+named in Background. Modelled together, though, neither predictor's own net effect
+actually changes sign by Urban status: both stay in the same direction (higher
+poverty/income linked to lower odds of low access) in both area types -- only which
+predictor dominates changes. Because the two predictors are correlated (\hyperref[fig:correlation]{Figure 2}),
+the apparent bivariate reversal for each one considered alone is, at least in part, a
+product of shared variance redistributed differently by area type, not two
+independent reversals.
+
+## Goodness of fit (chosen model: M1)
+
+```{r goodness-of-fit, include=FALSE}
+# Hosmer-Lemeshow: are M1's predicted probabilities well-calibrated,
+# not just "better than M0"? LRT/AIC only compare models against each
+# other, not whether the chosen model's predictions match reality.
+hl_test <- hoslem.test(m1$y, fitted(m1), g = 10)
+
+calib_df <- data.frame(predicted = fitted(m1), observed = m1$y) %>%
+  mutate(decile = ntile(predicted, 10)) %>%
+  group_by(decile) %>%
+  summarise(mean_predicted = mean(predicted), mean_observed = mean(observed), n = n(), .groups = "drop")
+```
+
+A formal test of whether **M1**'s predicted probabilities match the data (Hosmer,
+Lemeshow and Sturdivant, 2013) rejects good calibration (X-squared =
+`r round(unname(hl_test$statistic), 2)`, df = `r unname(hl_test$parameter)`, p < 0.001)
+-- expected at this sample size (n ~ 72,000), since the test's power to detect any
+deviation, however small, grows with n. The calibration plot (\hyperref[fig:calibration]{Figure 5})
+shows most deciles tracking the diagonal closely, but the top decile under-predicts
+risk by about ten percentage points (55% predicted vs. 65% observed) -- a gap worth
+flagging for the screening use proposed in Conclusions and Recommendations, since it
+falls exactly where that use case cares most:
+
+```{r calibration-plot, fig.cap="Calibration plot for \\textbf{M1}: predicted vs. observed low-access rate by decile of predicted probability.\\label{fig:calibration}", out.width="75%", fig.align="center", fig.width=5.5, fig.height=3}
+ggplot(calib_df, aes(mean_predicted, mean_observed)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "#898781") +
+  geom_line(color = col_blue, linewidth = 0.6) +
+  geom_point(color = col_blue, size = 2.2) +
+  labs(x = "Mean predicted probability (decile)", y = "Observed proportion low-access") +
+  coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_report()
+```
 
 ## M2: does vehicle access explain the reversal?
 
-[TODO: state the mediation-style question -- does adding vehicle access
-attenuate the Urban interaction coefficients, i.e. is limited vehicle
-access part of *why* the relationship flips by Urban rather than Urban
-being a standalone confound?]
+**M2** checks an optional sensitivity question from the oral assessment: does vehicle
+access (lahunv1share, structural missingness; see Data Description) explain the
+Urban-dependent reversal? It does not. **M2** adds lahunv1share to **M1** as a plain
+main effect, not interacted with Urban, since the question is whether it explains the
+existing Urban interaction, not whether it has its own Urban-specific slope.
 
 ```{r m2-vehicle-access, include=FALSE}
 # lahunv1share has structural missingness (only computed for
@@ -270,26 +598,17 @@ m2 <- glm(LA1and10 ~ PovertyRate_z * Urban_f + MedianFamilyIncome_z * Urban_f + 
           data = df_m2, family = binomial)
 ```
 
-```{r m2-sample-note}
-sample_note <- data.frame(
-  Dataset = c("Full sample (M0/M1)", "lahunv1share complete cases (M1 refit / M2)"),
-  `Rows` = c(n_full, n_m2),
-  `% of full sample` = round(100 * c(n_full, n_m2) / n_full, 1),
-  check.names = FALSE
-)
-kable(sample_note, align = c("l", "r", "r"),
-      caption = "Sample size used for the M2 comparison (structural missingness in lahunv1share)")
+```{r m2-sample-note, include=FALSE}
+pct_m2 <- round(100 * n_m2 / n_full, 1)
 ```
 
-```{r m2-coefficient-shrinkage}
+```{r m2-coefficient-shrinkage, include=FALSE}
 # Coefficient-shrinkage comparison: if the Urban interaction
 # coefficients move substantially toward 0 once lahunv1share is added,
 # that's informal evidence vehicle access explains part of the
 # Urban-dependent reversal. If they barely move, the reversal isn't
-# mainly a vehicle-access story.
+# mainly a vehicle-access story. Full table rendered in Appendix A.
 interaction_terms <- c("PovertyRate_z:Urban_fUrban", "Urban_fUrban:MedianFamilyIncome_z")
-term_labels <- c("PovertyRate_z:Urban_fUrban" = "Poverty x Urban",
-                  "Urban_fUrban:MedianFamilyIncome_z" = "Income x Urban")
 
 shrink_table <- bind_rows(
   tidy(m1_sub) %>% filter(term %in% interaction_terms) %>% mutate(Model = "M1 (refit on M2 subsample)"),
@@ -297,191 +616,46 @@ shrink_table <- bind_rows(
 ) %>%
   transmute(Model, Term = term_labels[term], Estimate = round(estimate, 3),
             `Std. Error` = round(std.error, 3), `p-value` = format_p(p.value))
-kable(shrink_table, align = c("l", "l", "r", "r", "r"),
-      caption = "Urban interaction coefficients before/after adding lahunv1share")
 ```
 
-[TODO: read off the table above -- did the interaction coefficients
-shrink toward 0 from M1 (refit) to M2? By roughly how much (%)? State
-the conclusion for the mediation-style question.]
+Restricting to the subsample with vehicle-access data (`r pct_m2`% of the full sample)
+already changes the conclusion for poverty: the Poverty x Urban interaction,
+significant in the full-sample **M1** (\hyperref[tab:m1or]{Table 3}), is no longer distinguishable from zero
+here -- unlike the income-side result, which stays significant under the same
+restriction (full estimates in Appendix A, \hyperref[tab:appendixm2]{Table A1}). Adding
+lahunv1share itself does not support a simple "vehicle access explains it" story:
+both Urban interaction coefficients should shrink toward zero if it did, but instead
+income barely moves and poverty grows back to significant -- the opposite.
 
-## Goodness of fit (chosen model: M1)
+The more defensible reading: vehicle access correlates with both poverty and the
+subsample's composition, making the subsample-only estimate unstable -- not that it
+causally explains the reversal. Vehicle access remains worth investigating further
+(as Dr McMillan suggested), but this analysis does not show it to be the mechanism
+behind either reversal.
 
-```{r goodness-of-fit, include=FALSE}
-# Hosmer-Lemeshow: are M1's predicted probabilities well-calibrated,
-# not just "better than M0"? LRT/AIC only compare models against each
-# other, not whether the chosen model's predictions match reality.
-hl_test <- hoslem.test(m1$y, fitted(m1), g = 10)
+## M3: random forest comparison
 
-calib_df <- data.frame(predicted = fitted(m1), observed = m1$y) %>%
-  mutate(decile = ntile(predicted, 10)) %>%
-  group_by(decile) %>%
-  summarise(mean_predicted = mean(predicted), mean_observed = mean(observed), n = n(), .groups = "drop")
-```
+A second, non-parametric method (random forest, Breiman, 2001) is worth fitting for
+two reasons: it can represent any Urban interaction without one being specified in
+advance, directly checking whether **M1**'s interaction-term story survives a method
+with no fixed functional form; and it satisfies the brief's suggestion to fit an
+actual prediction/ML model. It uses the same three predictors as **M1**
+(PovertyRate_z, MedianFamilyIncome_z, Urban_f) plus four demographic composition
+shares (Black, children, seniors, low-vehicle-access), all seven included directly
+since the brief does not call for a feature-selection step.
 
-```{r hl-test-table}
-hl_table <- data.frame(
-  Statistic = "Hosmer-Lemeshow X-squared",
-  value = round(unname(hl_test$statistic), 2),
-  df = unname(hl_test$parameter),
-  `p-value` = format_p(hl_test$p.value),
-  check.names = FALSE
-)
-kable(hl_table, align = c("l", "r", "r", "r"), caption = "Hosmer-Lemeshow goodness-of-fit test for M1")
-```
-
-```{r calibration-plot, fig.cap="Calibration plot for M1: predicted vs. observed low-access rate by decile of predicted probability. Points on the dashed line indicate perfect calibration.", out.width="65%", fig.align="center", fig.width=5, fig.height=4.5}
-ggplot(calib_df, aes(mean_predicted, mean_observed)) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
-  geom_point(size = 2) +
-  geom_line() +
-  labs(x = "Mean predicted probability (decile)", y = "Observed proportion low-access") +
-  coord_equal(xlim = c(0, 1), ylim = c(0, 1))
-```
-
-[TODO: state the HL test p-value and what it means (large p = fail to
-reject H0 of good calibration -- but note that at very large n, HL
-becomes extremely sensitive and will flag even tiny, practically
-irrelevant deviations from perfect calibration as "significant", so a
-significant HL result here doesn't necessarily mean the model is
-practically miscalibrated -- read the calibration plot alongside it for
-the practical picture, not instead of it. With n ~ 72,000 here, expect
-HL to reject even for a genuinely well-calibrated model -- that's why
-the calibration plot matters more than the p-value at this sample size).]
-
-## M3: random forest comparison, with GA-based feature selection
-
-[TODO: explain why a second, non-parametric method is worth fitting --
-to check whether the logistic model's interaction-term story survives
-in a method that doesn't assume a particular functional form, and to
-satisfy the brief's "ideally fit a prediction/ML model" ask with an
-actual second method, not a third logistic-regression variant.]
-
-### Feature selection: genetic algorithm
-
-[TODO: explain the GA -- following the approach from AIML426
-(Evolutionary Computation), each chromosome is a binary vector marking
-which optional predictors are included; PovertyRate_z,
-MedianFamilyIncome_z and Urban are always included since they're
-central to the research question, and the GA searches over whether to
-add each of the four demographic composition shares. Fitness = 5-fold
-cross-validated AUC of a random forest fit on the selected features.]
-
-```{r ga-feature-selection, include=FALSE, cache=TRUE}
-set.seed(471)
-
+```{r m3-data-prep, include=FALSE}
+mandatory_features <- c("PovertyRate_z", "MedianFamilyIncome_z", "Urban_f")
 optional_features <- c("black_share_plain_z", "kids_share_plain_z",
                         "seniors_share_plain_z", "hunv_share_plain_z")
-mandatory_features <- c("PovertyRate_z", "MedianFamilyIncome_z", "Urban_f")
+selected_features <- c(mandatory_features, optional_features)
 
-ga_data <- df %>% select(LA1and10, all_of(mandatory_features), all_of(optional_features)) %>%
-  na.omit()
-ga_data$LA1and10 <- factor(ga_data$LA1and10, levels = c(0, 1), labels = c("No", "Yes"))
-
-# Subsample for the GA's internal fitness evaluation only -- keeps each
-# generation fast; the final chosen model is refit on the full ga_data
-# afterwards.
-ga_sample_idx <- sample(nrow(ga_data), size = min(8000, nrow(ga_data)))
-ga_sample <- ga_data[ga_sample_idx, ]
-
-fitness_auc <- function(chromosome) {
-  chosen <- c(mandatory_features, optional_features[chromosome == 1])
-  if (length(chosen) == 0) return(0)
-  folds <- sample(rep(1:5, length.out = nrow(ga_sample)))
-  fold_auc <- sapply(1:5, function(k) {
-    train <- ga_sample[folds != k, ]
-    test <- ga_sample[folds == k, ]
-    fit <- randomForest(x = train[, chosen, drop = FALSE], y = train$LA1and10, ntree = 100)
-    pred <- predict(fit, test[, chosen, drop = FALSE], type = "prob")[, "Yes"]
-    as.numeric(auc(response = test$LA1and10, predictor = pred, quiet = TRUE))
-  })
-  mean(fold_auc)
-}
-
-# Minimal GA (binary encoding, tournament selection, single-point
-# crossover, bit-flip mutation) -- written directly rather than via a
-# package, since the search space here (2^4 = 16 subsets) is small
-# enough that the mechanics matter more for this report than raw speed;
-# the same code scales to a much larger optional-feature set.
-n_genes <- length(optional_features)
-pop_size <- 8
-n_generations <- 6
-mutation_rate <- 0.15
-
-population <- matrix(sample(0:1, pop_size * n_genes, replace = TRUE), nrow = pop_size)
-ga_history <- data.frame(generation = integer(), best_fitness = numeric(), mean_fitness = numeric())
-
-# Track the best chromosome seen across ALL generations, not just the
-# final one -- reproduction below has no elitism, so a strong individual
-# found mid-run isn't guaranteed to survive to the last generation.
-best_ever_fitness <- -Inf
-best_ever_chromosome <- NULL
-
-for (gen in seq_len(n_generations)) {
-  fitness <- apply(population, 1, fitness_auc)
-  ga_history <- rbind(ga_history, data.frame(
-    generation = gen, best_fitness = max(fitness), mean_fitness = mean(fitness)
-  ))
-
-  if (max(fitness) > best_ever_fitness) {
-    best_ever_fitness <- max(fitness)
-    best_ever_chromosome <- population[which.max(fitness), ]
-  }
-
-  new_pop <- matrix(nrow = pop_size, ncol = n_genes)
-  for (i in seq(1, pop_size, by = 2)) {
-    # Tournament selection (size 2) for each parent.
-    parents_idx <- sample(pop_size, 4)
-    parent1 <- population[parents_idx[which.max(fitness[parents_idx[1:2]])], ]
-    parent2 <- population[parents_idx[2 + which.max(fitness[parents_idx[3:4]])], ]
-    cut <- sample(1:(n_genes - 1), 1)
-    child1 <- c(parent1[1:cut], parent2[(cut + 1):n_genes])
-    child2 <- c(parent2[1:cut], parent1[(cut + 1):n_genes])
-
-    flip1 <- runif(n_genes) < mutation_rate
-    child1[flip1] <- 1 - child1[flip1]
-    new_pop[i, ] <- child1
-
-    if (i + 1 <= pop_size) {
-      flip2 <- runif(n_genes) < mutation_rate
-      child2[flip2] <- 1 - child2[flip2]
-      new_pop[i + 1, ] <- child2
-    }
-  }
-  population <- new_pop
-}
-
-best_chromosome <- best_ever_chromosome
-selected_features <- c(mandatory_features, optional_features[best_chromosome == 1])
+rf_data <- df %>% select(LA1and10, all_of(selected_features)) %>% na.omit()
+rf_data$LA1and10 <- factor(rf_data$LA1and10, levels = c(0, 1), labels = c("No", "Yes"))
 ```
 
-```{r ga-convergence-plot, fig.cap="Genetic algorithm convergence: best and mean 5-fold CV AUC by generation.", out.width="65%", fig.align="center", fig.width=5.5, fig.height=3.5}
-ga_history %>%
-  pivot_longer(c(best_fitness, mean_fitness), names_to = "type", values_to = "auc") %>%
-  ggplot(aes(generation, auc, color = type)) +
-  geom_line() + geom_point() +
-  scale_color_manual(values = c(best_fitness = "darkorange", mean_fitness = "steelblue"),
-                      labels = c("Best in generation", "Population mean")) +
-  labs(x = "Generation", y = "5-fold CV AUC (random forest)", color = NULL) +
-  theme(legend.position = "bottom")
-```
-
-```{r ga-selected-features}
-ga_selected_table <- data.frame(
-  Feature = c(mandatory_features, optional_features),
-  Type = c(rep("Mandatory", length(mandatory_features)), rep("Optional (GA-selected)", length(optional_features))),
-  Selected = c(rep("Yes", length(mandatory_features)),
-               ifelse(best_chromosome == 1, "Yes", "No"))
-)
-kable(ga_selected_table, align = c("l", "l", "l"),
-      caption = "Features selected by the genetic algorithm")
-```
-
-[TODO: state which optional features the GA kept, and whether that's
-substantively interesting (e.g. did it keep the same demographic shares
-that mattered in the group EDA's correlation heatmap?).]
-
-### Final random forest vs. M1: held-out test performance
+The final random forest (300 trees) is trained on a 70% split of the data, stratified
+jointly by LA1and10 and Urban status, and evaluated on the remaining 30%.
 
 ```{r m3-train-test, include=FALSE}
 set.seed(471)
@@ -489,7 +663,6 @@ set.seed(471)
 # Stratify the train/test split by LA1and10 (and Urban, since it's
 # central to the research question) so both classes and both area
 # types are represented proportionally in the test set.
-rf_data <- ga_data
 strata <- interaction(rf_data$LA1and10, rf_data$Urban_f)
 train_idx <- unlist(lapply(split(seq_len(nrow(rf_data)), strata), function(idx) {
   sample(idx, size = floor(0.7 * length(idx)))
@@ -516,7 +689,7 @@ acc <- function(pred, actual, threshold = 0.5) {
 }
 ```
 
-```{r m3-performance-table}
+```{r m3-performance-table, include=FALSE}
 perf_table <- data.frame(
   Model = c("M1 (logistic)", "M3 (random forest)"),
   `AUC` = round(c(as.numeric(m1_roc$auc), as.numeric(rf_roc$auc)), 3),
@@ -526,47 +699,264 @@ perf_table <- data.frame(
   `Test n` = nrow(test_df),
   check.names = FALSE
 )
-kable(perf_table, align = c("l", "r", "r", "r", "r"),
-      caption = "Held-out test performance: M1 vs. M3 (bootstrap 95% CI on AUC)")
 ```
 
-```{r rf-importance, fig.cap="Random forest variable importance (mean decrease in Gini).", out.width="65%", fig.align="center", fig.width=5.5, fig.height=3.5}
+```{r rf-partial-dependence-data, include=FALSE}
+# Does the random forest, which was never told about any Urban
+# interaction, independently learn an Urban-dependent relationship for
+# poverty and income? Partial dependence: vary one feature over a grid,
+# fix Urban_f, and average predicted probability over a sample of the
+# other features' real joint distribution.
+make_pd <- function(model, data, var, grid, urban_level) {
+  sapply(grid, function(val) {
+    pdata <- data
+    pdata[[var]] <- val
+    pdata$Urban_f <- factor(urban_level, levels = levels(data$Urban_f))
+    mean(predict(model, pdata, type = "prob")[, "Yes"])
+  })
+}
+
+set.seed(471)
+pd_sample <- train_df[sample(nrow(train_df), 5000), ]
+pov_grid <- seq(quantile(rf_data$PovertyRate_z, 0.02), quantile(rf_data$PovertyRate_z, 0.98), length.out = 10)
+inc_grid <- seq(quantile(rf_data$MedianFamilyIncome_z, 0.02), quantile(rf_data$MedianFamilyIncome_z, 0.98), length.out = 10)
+
+pd_pov <- bind_rows(
+  data.frame(x = pov_grid, prob = make_pd(rf_final, pd_sample, "PovertyRate_z", pov_grid, "Rural"), Area = "Rural"),
+  data.frame(x = pov_grid, prob = make_pd(rf_final, pd_sample, "PovertyRate_z", pov_grid, "Urban"), Area = "Urban")
+)
+pd_inc <- bind_rows(
+  data.frame(x = inc_grid, prob = make_pd(rf_final, pd_sample, "MedianFamilyIncome_z", inc_grid, "Rural"), Area = "Rural"),
+  data.frame(x = inc_grid, prob = make_pd(rf_final, pd_sample, "MedianFamilyIncome_z", inc_grid, "Urban"), Area = "Urban")
+)
+```
+
+```{r rf-partial-dependence-plot-data2, include=FALSE}
+p_pd_pov <- ggplot(pd_pov, aes(x, prob, color = Area, linetype = Area)) +
+  geom_line(linewidth = 0.8) +
+  scale_color_manual(values = c(Rural = col_blue, Urban = col_orange)) +
+  scale_linetype_manual(values = c(Rural = "solid", Urban = "22")) +
+  labs(x = "Poverty rate (standardised)", y = "Predicted P(low access)", color = NULL, linetype = NULL) +
+  theme_report()
+
+p_pd_inc <- ggplot(pd_inc, aes(x, prob, color = Area, linetype = Area)) +
+  geom_line(linewidth = 0.8) +
+  scale_color_manual(values = c(Rural = col_blue, Urban = col_orange)) +
+  scale_linetype_manual(values = c(Rural = "solid", Urban = "22")) +
+  labs(x = "Median family income (standardised)", y = NULL, color = NULL, linetype = NULL) +
+  theme_report()
+```
+
+```{r pd-vs-m1-table, include=FALSE}
+# Does the forest's own partial-dependence direction (never told about
+# any Urban interaction) agree with M1's adjusted Urban-specific slope?
+pd_summary <- bind_rows(
+  pd_pov %>% group_by(Area) %>% summarise(net_change = prob[10] - prob[1], .groups = "drop") %>%
+    mutate(Predictor = "Poverty rate"),
+  pd_inc %>% group_by(Area) %>% summarise(net_change = prob[10] - prob[1], .groups = "drop") %>%
+    mutate(Predictor = "Median family income")
+) %>%
+  left_join(coef_plot_df %>% select(Predictor, Area, estimate), by = c("Predictor", "Area")) %>%
+  transmute(
+    Predictor, Area,
+    `Forest` = ifelse(net_change > 0, "Rises", "Falls"),
+    `M1 OR` = round(estimate, 3),
+    `M1` = ifelse(estimate < 1, "Falls", "Rises"),
+    Agree = ifelse(Forest == `M1`, "Yes", "No")
+  )
+```
+
+```{r rf-importance-data, include=FALSE}
 importance_df <- as.data.frame(importance(rf_final)) %>%
   tibble::rownames_to_column("Feature") %>%
-  arrange(MeanDecreaseGini)
+  arrange(MeanDecreaseGini) %>%
+  mutate(Feature = term_labels[Feature])
 importance_df$Feature <- factor(importance_df$Feature, levels = importance_df$Feature)
-
-ggplot(importance_df, aes(Feature, MeanDecreaseGini)) +
-  geom_col(fill = "steelblue") +
-  coord_flip() +
-  labs(x = NULL, y = "Mean decrease in Gini")
 ```
 
 ## Results (M3)
 
-[TODO: (1) does the random forest's test AUC overlap M1's CI, or is one
-clearly better -- what does that say about whether the logistic
-interaction structure captures the relationship well? (2) does the
-GA-selected feature importance ranking agree with which predictors
-mattered in M1 and the group EDA's correlation heatmap? (3) note that
-random forest importance and logistic-regression coefficients answer
-different questions (predictive contribution vs. a controlled partial
-effect) -- don't conflate them. (4) biases: tract-level aggregation
-(ecological fallacy risk), MedianFamilyIncome top-coded at $250,001,
-M2's non-random missingness (noted above).]
+**Partial dependence vs. M1.** To check whether the Urban-dependent pattern found in **M1** reflects a real feature of
+the data, not an artifact of the regression's parametric form, \hyperref[fig:rfpd]{Figure 6} shows how the
+random forest's own predicted probability changes as PovertyRate and MedianFamilyIncome
+vary by Urban/Rural status, without the forest ever being told these predictors
+interact with Urban status.
+
+```{r rf-partial-dependence-plot, fig.cap="Partial dependence: PovertyRate (left), MedianFamilyIncome (right), by Urban/Rural.\\label{fig:rfpd}", out.width="90%", fig.align="center", fig.width=8, fig.height=3.3}
+(p_pd_pov | p_pd_inc) + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+```{r pd-vs-m1-table-render}
+kable(pd_summary, align = c("l", "l", "l", "r", "l", "l"),
+      caption = "Random forest's partial-dependence direction vs. M1's adjusted odds ratio, by predictor and area\\label{tab:pdvsm1}")
+```
+
+\hyperref[tab:pdvsm1]{Table 4} checks each of the four curves' direction against **M1**'s adjusted odds
+ratio. Three of four agree; only Rural poverty does not -- the forest's predicted
+probability *rises* with poverty rate there, tracking the raw bivariate relationship
+(\hyperref[fig:pooledsplit]{Figure 1}) rather than **M1**'s adjusted Rural coefficient, which is negative net of
+income. This disagreement is informative, not a problem: **M1**'s poverty coefficient
+holds income fixed, while the forest's curve lets income vary naturally alongside
+poverty, the way the two actually move together (\hyperref[fig:correlation]{Figure 2}) -- the two methods
+answer different questions, so they need not agree, and for Rural tracts here they do
+not.
+
+```{r broader-pattern-data, include=FALSE}
+broader_vars <- c("PovertyRate_z" = "Poverty rate",
+                   "MedianFamilyIncome_z" = "Median family income",
+                   "black_share_plain_z" = "\\% Black",
+                   "kids_share_plain_z" = "\\% Children",
+                   "seniors_share_plain_z" = "\\% Seniors",
+                   "hunv_share_plain_z" = "\\% Low-vehicle-access households")
+
+broader_pattern <- lapply(names(broader_vars), function(v) {
+  grid <- seq(quantile(rf_data[[v]], 0.02), quantile(rf_data[[v]], 0.98), length.out = 10)
+  pd_rural <- make_pd(rf_final, pd_sample, v, grid, "Rural")
+  pd_urban <- make_pd(rf_final, pd_sample, v, grid, "Urban")
+  data.frame(
+    Predictor = broader_vars[[v]],
+    `Rural (net change)` = round(pd_rural[10] - pd_rural[1], 3),
+    `Urban (net change)` = round(pd_urban[10] - pd_urban[1], 3),
+    check.names = FALSE
+  )
+}) %>% bind_rows() %>%
+  mutate(Pattern = ifelse(sign(`Rural (net change)`) != sign(`Urban (net change)`),
+                           "Direction differs", "Same direction"))
+```
+
+**Broader pattern scan.** A broader scan of the other four **M3** predictors, requested at the oral assessment,
+confirms the Urban-dependent pattern is not unique to poverty and income (same
+procedure as \hyperref[fig:rfpd]{Figure 6}; full results in Appendix A, \hyperref[tab:appendixbroader]{Table A2}). Three of six show a
+genuine Rural/Urban direction flip: PovertyRate (above), % children, and, by far the
+largest effect, the share of low-vehicle-access households, where Rural barely moves
+but Urban swings sharply -- plausible given dense, walkable Urban tracts combine high
+car-free shares with good food access, a link that doesn't hold where Rural distances
+are large regardless. The other three (income, % Black, % Seniors) differ in strength
+but not direction.
+
+**Predictive performance.** \hyperref[tab:m3perf]{Table 5} shows **M3**'s non-overlapping, higher AUC and accuracy on the same held-out
+tracts, making it a meaningfully better predictor than **M1**. This does not contradict
+**M1**'s result: **M1** tests a specific hypothesis about how two slopes vary by Urban
+status, while **M3** is free to use any combination of features and non-linear
+interactions, including ones **M1** never specified.
+
+```{r m3-performance-table-render}
+kable(perf_table, align = c("l", "r", "r", "r", "r"),
+      caption = "Held-out test performance: M1 vs. M3 (bootstrap 95% CI on AUC)\\label{tab:m3perf}")
+```
+
+**Variable importance.** \hyperref[fig:rfimportance]{Figure 7}'s feature importance ranking puts vehicle access (hunv_share_plain_z)
+highest and Urban_f lowest of all seven -- not because Urban is unimportant, but
+because its contribution in **M1** is entirely through interaction terms that a plain
+importance ranking cannot decompose.
+
+```{r rf-importance-render, fig.cap="Random forest variable importance (mean decrease in Gini).\\label{fig:rfimportance}", out.width="57%", fig.align="center", fig.width=5.5, fig.height=3.5}
+ggplot(importance_df, aes(Feature, MeanDecreaseGini, fill = MeanDecreaseGini)) +
+  geom_col(width = 0.65) +
+  coord_flip() +
+  scale_fill_gradient(low = "#9ec5f4", high = "#184f95", guide = "none") +
+  labs(x = NULL, y = "Mean decrease in Gini") +
+  theme_report()
+```
+
+**Caveats.** Two caveats apply to **M1** and **M3** alike, and a third is specific to
+comparing **M2** and **M3**. The data are aggregated at the census-tract
+level, so any relationship found here is a tract-level (ecological) association that
+need not hold for individual households. MedianFamilyIncome is top-coded at
+\$250,001, compressing the top of the income distribution and likely understating the
+true income effect in the wealthiest tracts. Separately, **M2**'s finding of structural,
+non-random missingness in lahunv1share does not apply to **M3**: hunv_share_plain and the
+other composition shares are defined for all but a single tract, a negligible gap by
+comparison -- a reminder that vehicle access is measured two different ways across **M2**
+and **M3** (see EDA), so the two results are not a straightforward replication of each
+other.
 
 # Conclusions and Recommendations
 <!-- 1-2 pages -->
 
-[TODO: main conclusion(s), any recommendation, limitations, optionally
-future work.]
+The Urban interaction in **M1** is real and well-supported (p < 0.001), but the
+mechanism is more specific than a simple sign reversal: income dominates the
+poverty-income relationship with low food access in Rural tracts, and poverty
+dominates it in Urban tracts, rather than either predictor's net effect flipping sign
+once the other is controlled for. **M2** finds no evidence that vehicle access explains
+this pattern, though the poverty-side finding is less robust to which subset of
+tracts is analysed than the income-side finding is. **M3**'s random forest confirms the
+interaction model's predictors are useful for prediction (AUC 0.776 vs. 0.686 for **M1**),
+while showing that vehicle access and demographic composition shares carry more raw
+predictive weight than poverty and income once non-linear interactions are allowed. A
+broader scan of the random forest's own predictions confirms Dr McMillan's
+oral-assessment suggestion that this isn't unique to poverty and income: three of six
+predictors scanned (poverty, % children, and above all vehicle access) show a genuine
+Rural/Urban direction flip, with vehicle access the largest reversal found.
 
-# References
+**Recommendation.** Tract-level screening should not assume a single poverty or income
+threshold works the same way in Urban and Rural areas. Which predictor signals "at
+risk of low access" depends on area type, and vehicle access, not just income or
+poverty, is worth its own screening variable given its importance in **M3**. **M1**'s
+calibration is weakest exactly in the highest-risk decile (Goodness of fit), so any
+screening threshold should be validated against observed outcomes rather than applied
+directly from the fitted probabilities.
 
-[TODO: at minimum, cite the data source, e.g.
+**Limitations.** All three **M3** caveats apply overall (tract-level aggregation, income
+top-coding, the two vehicle-access measures across **M2** and **M3**). The analysis is also
+observational and cross-sectional (Data Description): none of **M1**, **M2** or **M3** can
+distinguish a causal mechanism from a stable correlation, and the Ethics section's
+caution about demographic composition shares applies equally here. Future work could
+add a variable-importance stability check to **M3**, or revisit **M2** with a wider range of
+vehicle-access variables now that **M3** shows vehicle access is the most predictive
+feature available.
+
+{{< pagebreak >}}
+
+# References {.unnumbered}
+
+Breiman, L. (2001). Random Forests. *Machine Learning*, 45(1), 5-32.
+\url{https://doi.org/10.1023/A:1010933404324}
+
+Hosmer, D. W., Lemeshow, S., and Sturdivant, R. X. (2013). *Applied Logistic
+Regression* (3rd ed.). Wiley.
 
 United States Department of Agriculture, Economic Research Service (2019).
 *Food Access Research Atlas*. https://www.ers.usda.gov/data-products/food-access-research-atlas/
-]
 
-<!-- # Appendices (optional) -->
+Ver Ploeg, M., Breneman, V., Farrigan, T., Hamrick, K., Hopkins, D., Lin, B.-H., Nord,
+M., Smith, T. A., Williams, R., Kinnison, K., Olander, C., Singh, A., and Tuckermanty,
+E. (2009). *Access to Affordable and Nutritious Food: Measuring and Understanding Food
+Deserts and Their Consequences: Report to Congress*. United States Department of
+Agriculture, Economic Research Service. https://www.ers.usda.gov/publications/42729
+
+Whithair, L., Busto, N. G., Mehmood, H., and Cai, L. (2026). *DATA471 Group 21 Phase 1
+Report* (unpublished coursework, Victoria University of Wellington).
+
+{{< pagebreak >}}
+
+# Appendix A: Supporting detail {.unnumbered}
+
+Full detail for two secondary checks summarised in Detailed Analysis Results: the **M2**
+sensitivity analysis ("**M2**: does vehicle access explain the reversal?") and the
+broader-pattern scan beyond poverty and income (Results (**M3**)).
+
+**Table A1.** \label{tab:appendixm2}Full coefficients for the **M2** sensitivity check.
+
+```{r appendix-m2-table}
+kable(shrink_table, align = c("l", "l", "r", "r", "r"))
+```
+
+**Table A2.** \label{tab:appendixbroader}Full broader-pattern scan: random forest's predicted probability,
+Rural vs. Urban net change across each predictor's observed range.
+
+```{r appendix-broader-table}
+broader_pattern %>%
+  rename(`Rural` = `Rural (net change)`,
+         `Urban` = `Urban (net change)`) %>%
+  kable(align = c("l", "r", "r", "l"), escape = FALSE)
+```
+
+# Appendix B: Declaration of AI Use {.unnumbered}
+
+Claude Code was used to help check and improve the R code for the statistical and
+random forest models, to independently verify numerical claims in the report against
+the underlying computations, to act as a sounding board for discussing analysis and
+structural decisions, to assist with data visualisation design, and to assist with
+Quarto/LaTeX typesetting and English language polishing. All written interpretations
+and analytical decisions are my own work.
