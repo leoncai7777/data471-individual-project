@@ -4,6 +4,9 @@ reference/
 # personal prep notes (oral assessment), not part of the submission
 oral-assessment/
 
+# raw dataset — submission brief says code must NOT include data files
+data/
+
 # Quarto / knitr build artifacts
 /.quarto/
 *_files/
