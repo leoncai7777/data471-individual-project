@@ -283,7 +283,9 @@ This section shows only the comparisons that motivate the Detailed Analysis, rat
 than repeating the group report's full EDA. \hyperref[fig:pooledsplit]{Figure 1} shows PovertyRate (top) and
 MedianFamilyIncome (bottom) by LA1and10 status, compared three ways: pooled across all
 tracts, then split into Rural and Urban. Pooled, the two groups overlap heavily on
-both variables, matching Background's description of a weak pooled effect. Splitting
+both variables, matching Background's description of a weak pooled effect. What
+separation does exist runs counter to common intuition: low-access tracts pooled skew
+slightly wealthier and less poor, not poorer. Splitting
 by Urban/Rural status, however, uncovers the reversal described in Background: within
 Rural tracts the pattern matches common intuition, while within Urban tracts it
 reverses. This is the entire basis for the research question above: a relationship
