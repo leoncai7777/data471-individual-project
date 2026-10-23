@@ -121,21 +121,6 @@ for (v in c("black_share_plain", "kids_share_plain", "seniors_share_plain", "hun
 }
 ```
 
-<!--
-Marking-scheme reminders (delete before submission):
-- 10-12 pages TOTAL incl. references, excl. appendices. ~8 pages of TEXT -
-  don't pad with plots to hit 12. Shorter is fine.
-- Font 11 or 12, margins >= 2cm.
-- No raw R/Python output - build proper tables (kable), <=3 d.p.,
-  right-aligned numeric columns.
-- NOT sufficient to resubmit the group report - Background/Data/Ethics/EDA
-  must be revised to be specific to YOUR question, not just copy-pasted.
-- Detailed Analysis must go BEYOND the group EDA - at minimum a hypothesis
-  test, ideally a fitted model with goodness-of-fit / performance check.
-- Executive Summary: max 1 page, non-technical language, but WITH numbers
-  (coefficients, CIs, p-values, accuracy). Write this section last.
--->
-
 # Executive Summary
 <!-- max 1 page. non-technical language, but must include numbers. -->
 
